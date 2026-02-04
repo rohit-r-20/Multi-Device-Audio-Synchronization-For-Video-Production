@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Modern Color Palette -->
+    <color name="primary">#6366F1</color>
+    <color name="primary_dark">#4F46E5</color>
+    <color name="accent">#10B981</color>
+    
+    <!-- Backgrounds -->
+    <color name="bg_light">#F8FAFC</color>
+    <color name="bg_dark">#0F172A</color>
+    
+    <!-- Cards -->
+    <color name="card_light">#FFFFFF</color>
+    <color name="card_dark">#1E293B</color>
+
+    <!-- Signal Colors -->
+    <color name="signal_strong">#22C55E</color>
+    <color name="signal_medium">#F59E0B</color>
+    <color name="signal_weak">#EF4444</color>
+
+    <!-- Default colors -->
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+</resources>
