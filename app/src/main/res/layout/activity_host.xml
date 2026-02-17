@@ -6,10 +6,17 @@
     android:orientation="vertical"
     android:padding="16dp">
 
+    <androidx.camera.view.PreviewView
+        android:id="@+id/viewFinder"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
     <TextView
         android:id="@+id/tvHostIpDisplay"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
         android:text="Your IP: Fetching..."
         android:textSize="20sp"
         android:textStyle="bold" />
@@ -18,22 +25,35 @@
         android:id="@+id/hostStatusText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
+        android:layout_marginTop="8dp"
         android:text="Waiting for audio..."
         android:textSize="18sp" />
 
-    <Button
-        android:id="@+id/btnRecord"
+    <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="32dp"
-        android:text="Start Recording" />
+        android:layout_marginTop="16dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnRecord"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Start Audio Rec" />
+
+        <Button
+            android:id="@+id/btnVideoRecord"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="Start Video Rec" />
+    </LinearLayout>
 
     <TextView
         android:id="@+id/tvRecordingPath"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="8dp"
         android:gravity="center"
         android:textSize="14sp" />
 
@@ -41,7 +61,7 @@
         android:id="@+id/btnExport"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="8dp"
         android:text="Export Recording"
         android:visibility="gone" />
 

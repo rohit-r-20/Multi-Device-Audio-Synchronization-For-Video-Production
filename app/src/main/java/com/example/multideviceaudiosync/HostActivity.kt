@@ -1,30 +1,51 @@
 package com.example.multideviceaudiosync
 
+import android.Manifest
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
 import android.media.AudioTrack
 import android.net.wifi.WifiManager
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.MediaStore
 import android.util.Log
 import android.view.View
 import android.widget.Button
 import android.widget.TextView
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.Preview
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.video.MediaStoreOutputOptions
+import androidx.camera.video.Quality
+import androidx.camera.video.QualitySelector
+import androidx.camera.video.Recorder
+import androidx.camera.video.Recording
+import androidx.camera.video.VideoCapture
+import androidx.camera.video.VideoRecordEvent
+import androidx.camera.view.PreviewView
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import java.io.File
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
 import java.net.DatagramPacket
 import java.net.DatagramSocket
-import java.net.InetAddress
 import java.net.NetworkInterface
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import java.util.concurrent.LinkedBlockingQueue
 import kotlin.concurrent.thread
 
@@ -48,14 +69,31 @@ class HostActivity : AppCompatActivity() {
     private lateinit var ipTextView: TextView
     private lateinit var statusTextView: TextView
     private lateinit var btnRecord: Button
+    private lateinit var btnVideoRecord: Button
     private lateinit var btnExport: Button
     private lateinit var tvRecordingPath: TextView
+    private lateinit var viewFinder: PreviewView
 
-    // Recording variables
+    // Audio Recording variables
     private var isRecording = false
     private var recordFile: File? = null
     private var fileOutputStream: FileOutputStream? = null
     private var totalAudioLen: Long = 0
+
+    // CameraX variables
+    private var videoCapture: VideoCapture<Recorder>? = null
+    private var recording: Recording? = null
+    private lateinit var cameraExecutor: ExecutorService
+
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted: Boolean ->
+        if (isGranted) {
+            startCamera()
+        } else {
+            Toast.makeText(this, "Camera permission is required", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,8 +102,10 @@ class HostActivity : AppCompatActivity() {
         ipTextView = findViewById(R.id.tvHostIpDisplay)
         statusTextView = findViewById(R.id.hostStatusText)
         btnRecord = findViewById(R.id.btnRecord)
+        btnVideoRecord = findViewById(R.id.btnVideoRecord)
         btnExport = findViewById(R.id.btnExport)
         tvRecordingPath = findViewById(R.id.tvRecordingPath)
+        viewFinder = findViewById(R.id.viewFinder)
 
         ipTextView.text = "Your IP: ${getFormattedIpAddress()}"
 
@@ -77,9 +117,120 @@ class HostActivity : AppCompatActivity() {
             }
         }
 
+        btnVideoRecord.setOnClickListener {
+            captureVideo()
+        }
+
         btnExport.setOnClickListener {
             shareRecording()
         }
+
+        cameraExecutor = Executors.newSingleThreadExecutor()
+
+        if (allPermissionsGranted()) {
+            startCamera()
+        } else {
+            requestPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    private fun allPermissionsGranted() = ContextCompat.checkSelfPermission(
+        this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+
+    private fun startCamera() {
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
+
+        cameraProviderFuture.addListener({
+            val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
+
+            val preview = Preview.Builder()
+                .build()
+                .also {
+                    it.setSurfaceProvider(viewFinder.surfaceProvider)
+                }
+
+            val recorder = Recorder.Builder()
+                .setQualitySelector(QualitySelector.from(Quality.HIGHEST))
+                .build()
+            videoCapture = VideoCapture.withOutput(recorder)
+
+            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+
+            try {
+                cameraProvider.unbindAll()
+                cameraProvider.bindToLifecycle(
+                    this, cameraSelector, preview, videoCapture)
+            } catch(exc: Exception) {
+                Log.e(TAG, "Use case binding failed", exc)
+            }
+
+        }, ContextCompat.getMainExecutor(this))
+    }
+
+    private fun captureVideo() {
+        val videoCapture = this.videoCapture ?: return
+
+        btnVideoRecord.isEnabled = false
+
+        val curRecording = recording
+        if (curRecording != null) {
+            curRecording.stop()
+            recording = null
+            return
+        }
+
+        val name = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
+            .format(System.currentTimeMillis())
+        
+        val videoDir = getExternalFilesDir(Environment.DIRECTORY_MOVIES)
+        val videoFile = File(videoDir, "VIDEO_$name.mp4")
+
+        val mediaStoreOutputOptions = MediaStoreOutputOptions
+            .Builder(contentResolver, MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
+            .setContentValues(ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, "VIDEO_$name")
+                put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/MultiDeviceSync")
+                }
+            })
+            .build()
+
+        // Since the user asked specifically to save to getExternalFilesDir(Movies), 
+        // I will use FileDescriptor or File output options instead of MediaStore if preferred, 
+        // but MediaStore is more standard for Video. 
+        // However, CameraX Recorder also supports FileOutputOptions.
+        
+        val fileOutputOptions = androidx.camera.video.FileOutputOptions.Builder(videoFile).build()
+
+        recording = videoCapture.output
+            .prepareRecording(this, fileOutputOptions)
+            .start(ContextCompat.getMainExecutor(this)) { recordEvent ->
+                when(recordEvent) {
+                    is VideoRecordEvent.Start -> {
+                        btnVideoRecord.apply {
+                            text = "Stop Video Rec"
+                            isEnabled = true
+                        }
+                        Log.d(TAG, "Video recording started: ${videoFile.absolutePath}")
+                    }
+                    is VideoRecordEvent.Finalize -> {
+                        if (!recordEvent.hasError()) {
+                            val msg = "Video capture succeeded: ${recordEvent.outputResults.outputUri}"
+                            Toast.makeText(baseContext, msg, Toast.LENGTH_SHORT).show()
+                            Log.d(TAG, msg)
+                        } else {
+                            recording?.close()
+                            recording = null
+                            Log.e(TAG, "Video capture ends with error: ${recordEvent.error}")
+                        }
+                        btnVideoRecord.apply {
+                            text = "Start Video Rec"
+                            isEnabled = true
+                        }
+                    }
+                }
+            }
     }
 
     override fun onStart() {
@@ -251,7 +402,7 @@ class HostActivity : AppCompatActivity() {
             writeWavHeader(fileOutputStream!!, 0, 0)
             
             isRecording = true
-            btnRecord.text = "Stop Recording"
+            btnRecord.text = "Stop Audio Rec"
             btnExport.visibility = View.GONE
             tvRecordingPath.text = "Recording to: ${recordFile?.name}"
             Log.d(TAG, "Started recording to: ${recordFile?.absolutePath}")
@@ -269,7 +420,7 @@ class HostActivity : AppCompatActivity() {
             updateWavHeader(recordFile!!)
             
             runOnUiThread {
-                btnRecord.text = "Start Recording"
+                btnRecord.text = "Start Audio Rec"
                 btnExport.visibility = View.VISIBLE
                 tvRecordingPath.text = "Saved: ${recordFile?.absolutePath}"
             }
@@ -373,6 +524,7 @@ class HostActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        cameraExecutor.shutdown()
         stopEngine()
         if (isRecording) stopRecording()
     }
